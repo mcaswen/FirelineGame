@@ -9,6 +9,8 @@ using UnityEngine;
 [UpdateInGroup(typeof(GhostInputSystemGroup))] 
 public partial struct ClientSampleMoveInputSystem : ISystem
 {
+    double _next;
+
     public void OnCreate(ref SystemState state) { }
 
     public void OnUpdate(ref SystemState state)
@@ -25,5 +27,12 @@ public partial struct ClientSampleMoveInputSystem : ISystem
 
         var buffer = state.EntityManager.GetBuffer<MoveCommand>(target.targetEntity);
         buffer.AddCommandData(new MoveCommand { Tick = tick, Move = move });
+#if !UNITY_EDITOR
+        if (SystemAPI.Time.ElapsedTime > _next)
+        {
+            _next = SystemAPI.Time.ElapsedTime + 1.0;
+            Debug.Log($"[Client] SEND cmd tick={tick.SerializedData} move={move} bufLen={buffer.Length}");
+        }
+#endif
     }
 }

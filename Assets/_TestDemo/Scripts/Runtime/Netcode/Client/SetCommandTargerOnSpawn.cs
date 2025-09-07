@@ -1,6 +1,7 @@
 using Unity.Burst;
 using Unity.Entities;
 using Unity.NetCode;
+using UnityEngine;
 
 [BurstCompile]
 [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
@@ -23,11 +24,14 @@ public partial struct SetCommandTargetOnSpawn : ISystem
                      .WithAll<CubeTag>()
                      .WithEntityAccess())
         {
+#if !UNITY_EDITOR
             if (owner.ValueRO.NetworkId == myId.Value)
             {
                 target.ValueRW.targetEntity = entity;
+                Debug.Log($"[Client] CommandTarget BOUND to {entity.Index}:{entity.Version}, myId={myId.Value}");
                 break;
             }
+#endif
         }
     }
 }
