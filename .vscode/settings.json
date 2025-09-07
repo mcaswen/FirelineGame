@@ -56,5 +56,5 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "Fireline.sln"
+    "dotnet.defaultSolution": "FirelineGame.sln"
 }
