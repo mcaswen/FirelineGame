@@ -21,6 +21,6 @@ public class CubeAuthoringBaker : Baker<CubeAuthoring>
         AddComponent<CubeTag>(e);
         AddComponent(e, new MoveSpeed { Value = authoring.moveSpeed });
 
-        AddBuffer<MoveCommand>(e); //给玩家实体加命令缓冲
+        AddBuffer<MoveCommand>(e); // 给玩家实体加命令缓冲
     }
 }
