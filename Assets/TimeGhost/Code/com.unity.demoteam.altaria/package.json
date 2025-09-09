@@ -1,0 +1,9 @@
+{
+  "name": "com.unity.demoteam.altaria",
+  "displayName": "DemoTeam Altaria",
+  "version": "0.1.0",
+  "unity": "6000.0",
+  "description": "Running a vertex based deformer with Sentis",
+  "dependencies": {
+  }
+}

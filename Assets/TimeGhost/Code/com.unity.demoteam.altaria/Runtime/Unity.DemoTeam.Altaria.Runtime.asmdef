@@ -1,0 +1,20 @@
+{
+    "name": "Unity.DemoTeam.Altaria.Runtime",
+    "rootNamespace": "",
+    "references": [
+        "GUID:c98377141161c7746a178fb5cb1af075",
+        "GUID:d8b63aba1907145bea998dd612889d6b",
+        "GUID:2665a8d13d1b3f18800f46e256720795",
+        "GUID:df380645f10b7bc4b97d4f5eb6303d95",
+        "GUID:7e9d95a3be8cd654ba8a8d2bb2409223"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

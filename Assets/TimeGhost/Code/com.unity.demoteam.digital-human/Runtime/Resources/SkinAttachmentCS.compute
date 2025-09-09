@@ -1,0 +1,175 @@
+
+#pragma kernel ResolveAttachmentPositions KERNEL_NAME=ResolveAttachmentPositions
+#pragma kernel ResolveAttachmentPositionsNormals KERNEL_NAME=ResolveAttachmentPositionsNormals GENERATE_NORMALS
+#pragma kernel ResolveAttachmentPositionsNormalsMovecs KERNEL_NAME=ResolveAttachmentPositionsNormalsMovecs GENERATE_MOVECS GENERATE_NORMALS
+#ifndef PI
+#define PI 3.14159265359f
+#endif 
+
+struct SkinAttachmentPose
+{
+    float3 targetCoord;
+    int v0;
+    int v1;
+    int v2;
+    float area;
+    float targetDist;
+};
+
+
+struct SkinAttachmentItem
+{
+    float4 targetFrameDelta;
+    float3 targetOffset;
+    float targetFrameW;
+    int baseVertex;
+    int poseIndex;
+    int poseCount;
+    int pad0;
+};
+
+//baked attachments data
+StructuredBuffer<SkinAttachmentPose> _AttachmentPosesBuffer;
+StructuredBuffer<SkinAttachmentItem> _AttachmentItemsBuffer;
+
+//skin buffers
+ByteAddressBuffer _SkinPositionsBuffer;
+ByteAddressBuffer _SkinNormalsBuffer;
+ByteAddressBuffer _SkinTangentsBuffer;
+int2 _SkinPositionStrideOffset;
+int2 _SkinNormalStrideOffset;
+int2 _SkinTangentStrideOffset;
+
+//attachment buffers
+RWByteAddressBuffer _AttachmentPosNormTanBuffer;
+int4 _StrideOffsetPosNormTanAttachment;
+
+
+RWByteAddressBuffer _AttachmentMovecsBuffer;
+int2 _StrideOffsetMovecsAttachment;
+
+
+float4x4 _ResolveTransform;
+float4x4 _PostSkinningToAttachmentTransform;
+int _NumberOfAttachments;
+int _AttachmentOffset;
+
+//from com.unity.demoteam.hair
+float4 QMul(float4 a, float4 b)
+{
+    float4 q;
+    q.xyz = a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz);
+    q.w = a.w * b.w - dot(a.xyz, b.xyz);
+    return q;
+}
+
+float3 QMul(float4 q, float3 v)
+{
+    float3 t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+void ForceOrthogonal(inout float3 a, inout float3 b)
+{
+    float3 c = cross(a, b);
+    b = cross(c,a);
+}
+
+float3x3 MakeTransformLookAt(float3 forward, float3 up)
+{
+    ForceOrthogonal(forward, up);
+    float3 x = -cross(forward, up);
+    return transpose(float3x3(x, up, forward));
+}
+
+[numthreads(64,1,1)]
+void KERNEL_NAME (uint id : SV_DispatchThreadID)
+{
+    if(id < (uint)_NumberOfAttachments)
+    {
+        
+        float3 targetBlended = 0.0f;
+        float targetWeights = 0.0f;
+
+        int itemIndex = _AttachmentOffset + int(id);
+        int resolveVertexIndex = int(id);
+
+
+        #if GENERATE_MOVECS
+        float3 previousPos = asfloat(_AttachmentPosNormTanBuffer.Load3(resolveVertexIndex * _StrideOffsetPosNormTanAttachment.x + _StrideOffsetPosNormTanAttachment.y));
+        #endif
+        
+        SkinAttachmentItem item = _AttachmentItemsBuffer[itemIndex];
+    
+        int poseIndex0 = item.poseIndex;
+        int poseIndexN = item.poseIndex + item.poseCount;
+
+        for (int poseIndex = poseIndex0; poseIndex != poseIndexN; poseIndex++)
+        {
+            SkinAttachmentPose pose = _AttachmentPosesBuffer[poseIndex];
+
+            float3 p0 = asfloat(_SkinPositionsBuffer.Load3(pose.v0 * _SkinPositionStrideOffset.x + _SkinPositionStrideOffset.y));
+            float3 p1 = asfloat(_SkinPositionsBuffer.Load3(pose.v1 * _SkinPositionStrideOffset.x + _SkinPositionStrideOffset.y));
+            float3 p2 = asfloat(_SkinPositionsBuffer.Load3(pose.v2 * _SkinPositionStrideOffset.x + _SkinPositionStrideOffset.y));
+
+            float3 v0v1 = p1 - p0;
+            float3 v0v2 = p2 - p0;
+    
+            float3 triangleNormal = cross(v0v1, v0v2);
+            float triangleArea = length(triangleNormal);
+    
+            triangleNormal /= triangleArea;
+            triangleArea *= 0.5f;
+    
+            float3 targetProjected = pose.targetCoord.x * p0 + pose.targetCoord.y * p1 + pose.targetCoord.z * p2;
+            float3 target = targetProjected + triangleNormal * pose.targetDist;
+    
+            targetBlended += triangleArea * target;
+            targetWeights += triangleArea;
+        }
+
+        targetBlended = targetBlended / targetWeights;
+
+        float3 baseNormal = asfloat(_SkinNormalsBuffer.Load3(item.baseVertex * _SkinNormalStrideOffset.x + _SkinNormalStrideOffset.y));
+        float4 baseTangent4;
+        if(_SkinTangentStrideOffset.x == 0 || _SkinTangentStrideOffset.y == -1)
+        {
+            baseTangent4 = 0;
+        }
+        else
+        {
+            baseTangent4 = asfloat(_SkinTangentsBuffer.Load4(item.baseVertex * _SkinTangentStrideOffset.x + _SkinTangentStrideOffset.y));
+        }
+        
+        float3 baseTangent = baseTangent4.xyz * baseTangent4.w;
+        
+        // convert to the same space as the attachment vertices
+        targetBlended = mul(_PostSkinningToAttachmentTransform, float4(targetBlended, 1.f) ).xyz;
+        baseNormal = mul(_PostSkinningToAttachmentTransform, float4(baseNormal, 0.f) ).xyz;
+        baseTangent = mul(_PostSkinningToAttachmentTransform, float4(baseTangent, 0.f) ).xyz;
+        
+        float3x3 m = MakeTransformLookAt(normalize(baseNormal), normalize(baseTangent));
+        float3 targetOffset = mul(m, item.targetOffset);
+        float3 targetNormal = mul(m, QMul(item.targetFrameDelta, float3(0.f, 0.f, 1.f)));
+        float3 targetTangent = mul(m, QMul(item.targetFrameDelta, float3(0.f, 1.f, 0.f)));
+
+        float3 resolvedPos = mul(_ResolveTransform, float4(targetBlended + targetOffset, 1.f)).xyz;
+        float3 resolvedNormal = mul(_ResolveTransform, float4(targetNormal, 0.f)).xyz;
+        float3 resolvedTangent = mul(_ResolveTransform, float4(targetTangent, 0.f)).xyz;
+
+        _AttachmentPosNormTanBuffer.Store3(resolveVertexIndex * _StrideOffsetPosNormTanAttachment.x + _StrideOffsetPosNormTanAttachment.y, asuint(resolvedPos));
+#if GENERATE_NORMALS
+        _AttachmentPosNormTanBuffer.Store3(resolveVertexIndex * _StrideOffsetPosNormTanAttachment.x + _StrideOffsetPosNormTanAttachment.z, asuint(normalize(resolvedNormal)));
+        if(_StrideOffsetPosNormTanAttachment.w != -1)
+        {
+            _AttachmentPosNormTanBuffer.Store4(resolveVertexIndex * _StrideOffsetPosNormTanAttachment.x + _StrideOffsetPosNormTanAttachment.w, asuint(float4(normalize(resolvedTangent), item.targetFrameW)));
+        }
+#endif
+        #if GENERATE_MOVECS
+        _AttachmentMovecsBuffer.Store3(resolveVertexIndex * _StrideOffsetMovecsAttachment.x + _StrideOffsetMovecsAttachment.y, asuint(resolvedPos - previousPos));
+        #endif
+        
+    }
+
+    
+}
